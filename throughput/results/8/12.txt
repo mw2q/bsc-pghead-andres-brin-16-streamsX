@@ -1,0 +1,58 @@
+BEGIN;
+BEGIN
+EXPLAIN (ANALYZE, BUFFERS)
+select
+	l_shipmode,
+	sum(case
+		when o_orderpriority = '1-URGENT'
+			or o_orderpriority = '2-HIGH'
+			then 1
+		else 0
+	end) as high_line_count,
+	sum(case
+		when o_orderpriority <> '1-URGENT'
+			and o_orderpriority <> '2-HIGH'
+			then 1
+		else 0
+	end) as low_line_count
+from
+	orders,
+	lineitem
+where
+	o_orderkey = l_orderkey
+	and l_shipmode in ('REG AIR', 'FOB')
+	and l_commitdate < l_receiptdate
+	and l_shipdate < l_commitdate
+	and l_receiptdate >= date '1993-01-01'
+	and l_receiptdate < date '1993-01-01' + interval '1 year'
+group by
+	l_shipmode
+order by
+	l_shipmode;
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=3047039.83..3047039.83 rows=1 width=27) (actual time=34361.653..34361.653 rows=2 loops=1)
+   Sort Key: lineitem.l_shipmode
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=644253 read=686276 dirtied=1 written=50
+   ->  HashAggregate  (cost=3047039.81..3047039.82 rows=1 width=27) (actual time=34361.605..34361.606 rows=2 loops=1)
+         Group Key: lineitem.l_shipmode
+         Buffers: shared hit=644248 read=686276 dirtied=1 written=50
+         ->  Hash Join  (cost=596084.94..3041944.49 rows=291161 width=27) (actual time=9398.824..34024.558 rows=312725 loops=1)
+               Hash Cond: (lineitem.l_orderkey = orders.o_orderkey)
+               Buffers: shared hit=644248 read=686276 dirtied=1 written=50
+               ->  Seq Scan on lineitem  (cost=0.00..2436760.77 rows=291161 width=15) (actual time=0.021..24296.079 rows=312725 loops=1)
+                     Filter: ((l_shipmode = ANY ('{"REG AIR",FOB}'::bpchar[])) AND (l_commitdate < l_receiptdate) AND (l_shipdate < l_commitdate) AND (l_receiptdate >= '1993-01-01'::date) AND (l_receiptdate < '1994-01-01 00:00:00'::timestamp without time zone))
+                     Rows Removed by Filter: 59731357
+                     Buffers: shared hit=417743 read=657230 dirtied=1 written=3
+               ->  Hash  (cost=406897.75..406897.75 rows=15134975 width=20) (actual time=9322.378..9322.378 rows=15015000 loops=1)
+                     Buckets: 16777216  Batches: 1  Memory Usage: 893553kB
+                     Buffers: shared hit=226502 read=29046 written=47
+                     ->  Seq Scan on orders  (cost=0.00..406897.75 rows=15134975 width=20) (actual time=0.012..4575.607 rows=15015000 loops=1)
+                           Buffers: shared hit=226502 read=29046 written=47
+ Planning time: 2.678 ms
+ Execution time: 34366.321 ms
+(21 rows)
+
+COMMIT;
+COMMIT

@@ -1,0 +1,104 @@
+BEGIN;
+BEGIN
+EXPLAIN (ANALYZE, BUFFERS)
+select
+	supp_nation,
+	cust_nation,
+	l_year,
+	sum(volume) as revenue
+from
+	(
+		select
+			n1.n_name as supp_nation,
+			n2.n_name as cust_nation,
+			extract(year from l_shipdate) as l_year,
+			l_extendedprice * (1 - l_discount) as volume
+		from
+			supplier,
+			lineitem,
+			orders,
+			customer,
+			nation n1,
+			nation n2
+		where
+			s_suppkey = l_suppkey
+			and o_orderkey = l_orderkey
+			and c_custkey = o_custkey
+			and s_nationkey = n1.n_nationkey
+			and c_nationkey = n2.n_nationkey
+			and (
+				(n1.n_name = 'CHINA' and n2.n_name = 'JAPAN')
+				or (n1.n_name = 'JAPAN' and n2.n_name = 'CHINA')
+			)
+			and l_shipdate between date '1995-01-01' and date '1996-12-31'
+	) as shipping
+group by
+	supp_nation,
+	cust_nation,
+	l_year
+order by
+	supp_nation,
+	cust_nation,
+	l_year;
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=2149879.59..2149887.23 rows=3055 width=64) (actual time=23318.975..23318.976 rows=4 loops=1)
+   Sort Key: n1.n_name, n2.n_name, (date_part('year'::text, (lineitem.l_shipdate)::timestamp without time zone))
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=6087090 read=310089 written=353
+   ->  HashAggregate  (cost=2149656.93..2149702.76 rows=3055 width=64) (actual time=23318.892..23318.899 rows=4 loops=1)
+         Group Key: n1.n_name, n2.n_name, date_part('year'::text, (lineitem.l_shipdate)::timestamp without time zone)
+         Buffers: shared hit=6087082 read=310089 written=353
+         ->  Hash Join  (cost=62340.37..2148739.85 rows=61139 width=64) (actual time=1067.728..23229.618 rows=58727 loops=1)
+               Hash Cond: (lineitem.l_suppkey = supplier.s_suppkey)
+               Join Filter: (((n1.n_name = 'CHINA'::bpchar) AND (n2.n_name = 'JAPAN'::bpchar)) OR ((n1.n_name = 'JAPAN'::bpchar) AND (n2.n_name = 'CHINA'::bpchar)))
+               Rows Removed by Join Filter: 58309
+               Buffers: shared hit=6087082 read=310089 written=353
+               ->  Nested Loop  (cost=58604.97..2136838.94 rows=1469122 width=42) (actual time=1028.184..22436.984 rows=1461998 loops=1)
+                     Buffers: shared hit=6084899 read=310089 written=353
+                     ->  Hash Join  (cost=58604.40..535779.34 rows=1214394 width=30) (actual time=1028.146..10326.848 rows=1203522 loops=1)
+                           Hash Cond: (orders.o_custkey = customer.c_custkey)
+                           Buffers: shared hit=266591 read=24995 written=15
+                           ->  Seq Scan on orders  (cost=0.00..408106.27 rows=15179927 width=8) (actual time=0.006..2793.792 rows=15015000 loops=1)
+                                 Buffers: shared hit=240131 read=16176 written=15
+                           ->  Hash  (cost=57104.40..57104.40 rows=120000 width=30) (actual time=1027.642..1027.642 rows=119822 loops=1)
+                                 Buckets: 131072  Batches: 1  Memory Usage: 8279kB
+                                 Buffers: shared hit=26460 read=8819
+                                 ->  Hash Join  (cost=1.40..57104.40 rows=120000 width=30) (actual time=0.037..959.049 rows=119822 loops=1)
+                                       Hash Cond: (customer.c_nationkey = n2.n_nationkey)
+                                       Buffers: shared hit=26460 read=8819
+                                       ->  Seq Scan on customer  (cost=0.00..50278.00 rows=1500000 width=8) (actual time=0.006..706.877 rows=1500000 loops=1)
+                                             Buffers: shared hit=26459 read=8819
+                                       ->  Hash  (cost=1.38..1.38 rows=2 width=30) (actual time=0.019..0.019 rows=2 loops=1)
+                                             Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                             Buffers: shared hit=1
+                                             ->  Seq Scan on nation n2  (cost=0.00..1.38 rows=2 width=30) (actual time=0.011..0.015 rows=2 loops=1)
+                                                   Filter: ((n_name = 'JAPAN'::bpchar) OR (n_name = 'CHINA'::bpchar))
+                                                   Rows Removed by Filter: 23
+                                                   Buffers: shared hit=1
+                     ->  Index Scan using pk_lineitem on lineitem  (cost=0.56..1.27 rows=5 width=20) (actual time=0.009..0.009 rows=1 loops=1203522)
+                           Index Cond: (l_orderkey = orders.o_orderkey)
+                           Filter: ((l_shipdate >= '1995-01-01'::date) AND (l_shipdate <= '1996-12-31'::date))
+                           Rows Removed by Filter: 3
+                           Buffers: shared hit=5818308 read=285094 written=338
+               ->  Hash  (cost=3635.40..3635.40 rows=8000 width=30) (actual time=39.431..39.431 rows=7997 loops=1)
+                     Buckets: 8192  Batches: 1  Memory Usage: 549kB
+                     Buffers: shared hit=2180
+                     ->  Hash Join  (cost=1.40..3635.40 rows=8000 width=30) (actual time=0.041..37.207 rows=7997 loops=1)
+                           Hash Cond: (supplier.s_nationkey = n1.n_nationkey)
+                           Buffers: shared hit=2180
+                           ->  Seq Scan on supplier  (cost=0.00..3179.00 rows=100000 width=8) (actual time=0.007..20.961 rows=100000 loops=1)
+                                 Buffers: shared hit=2179
+                           ->  Hash  (cost=1.38..1.38 rows=2 width=30) (actual time=0.019..0.019 rows=2 loops=1)
+                                 Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                 Buffers: shared hit=1
+                                 ->  Seq Scan on nation n1  (cost=0.00..1.38 rows=2 width=30) (actual time=0.011..0.015 rows=2 loops=1)
+                                       Filter: ((n_name = 'CHINA'::bpchar) OR (n_name = 'JAPAN'::bpchar))
+                                       Rows Removed by Filter: 23
+                                       Buffers: shared hit=1
+ Planning time: 5.913 ms
+ Execution time: 23319.383 ms
+(56 rows)
+
+COMMIT;
+COMMIT
